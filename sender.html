@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Video Streaming Page</title>
+</head>
+<body>
+    <video id="localVideo" autoplay muted></video>
+    <button id="startButton">Start Streaming</button>
+    <script>
+        const startButton = document.getElementById('startButton');
+        startButton.onclick = start;
+
+        let localStream;
+        const config = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]};
+        const signalingServer = new WebSocket('ws://localhost:8080');
+
+        signalingServer.onopen = async () => {
+            // Only start streaming automatically when the WebSocket connection is open
+            start();
+        };
+
+        async function start() {
+            localStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+            document.getElementById('localVideo').srcObject = localStream;
+
+            const peerConnection = new RTCPeerConnection(config);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    signalingServer.send(JSON.stringify({'iceCandidate': event.candidate}));
+                }
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            signalingServer.send(JSON.stringify({'offer': offer}));
+        }
+    </script>
+</body>
+</html>

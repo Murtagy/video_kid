@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Video Receiving Page</title>
+</head>
+<body>
+    <p>Video</p>
+    <video id="remoteVideo" autoplay></video>
+    <script>
+        const config = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]};
+        const signalingServer = new WebSocket('ws://localhost:8080');
+        signalingServer.onopen = () => {
+            signalingServer.send(JSON.stringify({"type": "register", "role": "receiver"}));
+        };
+
+        signalingServer.onmessage = async (message) => {
+            const data = JSON.parse(message.data);
+            const peerConnection = new RTCPeerConnection(config);
+
+            peerConnection.ontrack = event => {
+                document.getElementById('remoteVideo').srcObject = event.streams[0];
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    signalingServer.send(JSON.stringify({'iceCandidate': event.candidate}));
+                }
+            };
+
+            if (data.offer) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                signalingServer.send(JSON.stringify({'answer': answer}));
+            } else if (data.iceCandidate) {
+                try {
+                    await peerConnection.addIceCandidate(data.iceCandidate);
+                } catch (e) {
+                    console.error('Error adding received ice candidate', e);
+                }
+            }
+        };
+    </script>
+</body>
+</html>

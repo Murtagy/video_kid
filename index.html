@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple WebRTC Example</title>
+</head>
+<body>
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+    <button id="startButton">Start</button>
+    <script>
+        const startButton = document.getElementById('startButton');
+        startButton.onclick = start;
+
+        let localStream;
+        let peerConnection;
+        const config = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]};
+        const signalingServer = new WebSocket('ws://localhost:8080');
+
+        signalingServer.onmessage = async (message) => {
+            const data = JSON.parse(message.data);
+            if (data.offer) {
+                peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                signalingServer.send(JSON.stringify({'answer': answer}));
+            } else if (data.answer) {
+                peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+            } else if (data.iceCandidate) {
+                try {
+                    await peerConnection.addIceCandidate(data.iceCandidate);
+                } catch (e) {
+                    console.error('Error adding received ice candidate', e);
+                }
+            }
+        };
+
+        async function start() {
+            localStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+            document.getElementById('localVideo').srcObject = localStream;
+
+            peerConnection = new RTCPeerConnection(config);
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.ontrack = event => {
+                document.getElementById('remoteVideo').srcObject = event.streams[0];
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    signalingServer.send(JSON.stringify({'iceCandidate': event.candidate}));
+                }
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            signalingServer.send(JSON.stringify({'offer': offer}));
+        }
+    </script>
+</body>
+</html>
